@@ -24,6 +24,10 @@ body {
   font-family: "VT323", "Courier New", ui-monospace, monospace;
   font-size: var(--fs);
   line-height: 1.15;
+  /* Stop fonts merging "ff"/"fi" into one glyph, which breaks the 40-column grid */
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "clig" 0, "calt" 0, "dlig" 0;
+  font-kerning: none;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;

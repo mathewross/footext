@@ -31,6 +31,7 @@ export default {
       let body;
       if (url.pathname === "/football") body = await football(env);
       else if (url.pathname === "/news") body = await news(env, url.searchParams.get("team") || "");
+      else if (url.pathname === "/events") body = await matchEvents(env, url.searchParams);
       else return json({ error: "Not found" }, 404, cors);
       return json(body, 200, cors);
     } catch (e) {
@@ -224,4 +225,118 @@ async function news(env, team) {
 
     return { team, teamFeed: teamFeed.length > 0, items, updated: new Date().toISOString() };
   });
+}
+
+/* ---------- goal scorers & red cards (ESPN's public, unofficial scores feed) ----------
+ * GET /events?comp=PL&date=<ISO kick-off>&home=<name>&away=<name>
+ * Unofficial: ESPN could change this at any time. If it does, only the match detail page breaks. */
+
+const ESPN = "https://site.api.espn.com/apis/site/v2/sports/soccer";
+const ESPN_LEAGUE = { PL: "eng.1", ELC: "eng.2", CL: "uefa.champions" };
+
+const ALIAS = {
+  utd: "united", man: "manchester", "nottm": "nottingham", spurs: "tottenham", wolves: "wolverhampton",
+  brighton: "brighton", qpr: "queens park rangers", "west brom": "west bromwich", psg: "paris saint germain",
+  sheff: "sheffield", munchen: "munich", internazionale: "inter", "inter milan": "inter",
+};
+const STOP = new Set(["fc", "afc", "cf", "sc", "the", "club", "de", "ac", "cp", "sk", "fk", "and"]);
+
+function tokens(name) {
+  let s = (name || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/&/g, " and ").replace(/['’.]/g, "").replace(/[^a-z0-9 ]+/g, " ");
+  for (const [k, v] of Object.entries(ALIAS)) s = s.replace(new RegExp(`\\b${k}\\b`, "g"), v);
+  return s.split(/\s+/).filter((t) => t && !STOP.has(t));
+}
+
+function similarity(names, team) {
+  const theirs = [team.displayName, team.shortDisplayName, team.name, team.location].filter(Boolean);
+  let best = 0;
+  for (const a of names) for (const b of theirs) {
+    const ta = tokens(a), tb = tokens(b);
+    if (!ta.length || !tb.length) continue;
+    const common = ta.filter((t) => tb.includes(t)).length;
+    // Mostly "how much of the shorter name matches", with a tie-break for exact-length matches
+    // (so "Man City" prefers "Manchester City" over "Manchester United").
+    best = Math.max(best, common / Math.min(ta.length, tb.length) + 0.1 * (common / Math.max(ta.length, tb.length)));
+  }
+  return best;
+}
+
+const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+
+async function espnScoreboard(env, league, day, live) {
+  return cached(env, `espn:${league}:${day}`, live ? 60 : 6 * 3600, async () => {
+    const res = await fetch(`${ESPN}/${league}/scoreboard?dates=${day}`, { headers: { "User-Agent": "FOOTEXT personal app" } });
+    if (!res.ok) throw new Error(`ESPN ${res.status}`);
+    const j = await res.json();
+    // Keep only what we need so the cache stays small
+    return (j.events || []).map((e) => {
+      const c = e.competitions?.[0] || {};
+      return {
+        id: e.id,
+        status: c.status?.type?.shortDetail || e.status?.type?.shortDetail || "",
+        state: c.status?.type?.state || e.status?.type?.state || "",
+        teams: (c.competitors || []).map((t) => ({
+          side: t.homeAway === "home" ? "h" : "a",
+          id: String(t.team?.id ?? t.id),
+          score: t.score ?? null,
+          team: { displayName: t.team?.displayName, shortDisplayName: t.team?.shortDisplayName, name: t.team?.name, location: t.team?.location },
+        })),
+        details: (c.details || []).map(detail),
+      };
+    });
+  });
+}
+
+function detail(d) {
+  const text = (d.type?.text || "").toLowerCase();
+  const p = d.athletesInvolved?.[0] || {};
+  const kind = d.ownGoal || /own goal/.test(text) ? "og"
+    : (d.penaltyKick || /penalty/.test(text)) && (d.scoringPlay || /scored|goal/.test(text)) ? "pen"
+    : d.scoringPlay || /goal/.test(text) ? "goal"
+    : d.redCard || /red card/.test(text) ? "red"
+    : d.yellowCard || /yellow/.test(text) ? "yellow" : null;
+  return {
+    kind,
+    min: d.clock?.displayValue || "",
+    team: String(d.team?.id ?? ""),
+    name: p.shortName || p.displayName || "",
+    shootout: !!d.shootout,
+  };
+}
+
+async function matchEvents(env, q) {
+  const league = ESPN_LEAGUE[q.get("comp")];
+  const kickoff = new Date(q.get("date") || "");
+  const home = [q.get("home"), q.get("homeShort")].filter(Boolean);
+  const away = [q.get("away"), q.get("awayShort")].filter(Boolean);
+  if (!league || isNaN(kickoff) || !home.length || !away.length) throw new Error("Missing comp, date, home or away");
+
+  const live = Math.abs(Date.now() - kickoff) < 4 * 3600e3;
+  // ESPN groups games by US time, so also try the neighbouring days
+  for (const offset of [0, -1, 1]) {
+    const day = ymd(new Date(kickoff.getTime() + offset * 86400e3));
+    const events = await espnScoreboard(env, league, day, live);
+    let best = null, bestScore = 0;
+    for (const e of events) {
+      const h = e.teams.find((t) => t.side === "h"), a = e.teams.find((t) => t.side === "a");
+      if (!h || !a) continue;
+      const sh = similarity(home, h.team), sa = similarity(away, a.team);
+      if (sh > 0 && sa > 0 && sh + sa > bestScore) { best = e; bestScore = sh + sa; }
+    }
+    if (best) {
+      const side = {};
+      best.teams.forEach((t) => (side[t.id] = t.side));
+      return {
+        found: true,
+        source: "ESPN",
+        status: best.status,
+        score: ["h", "a"].map((s) => best.teams.find((t) => t.side === s)?.score ?? null),
+        events: best.details
+          .filter((d) => d.kind && d.kind !== "yellow")
+          .map((d) => ({ ...d, side: side[d.team] || null })),
+      };
+    }
+  }
+  return { found: false, events: [] };
 }

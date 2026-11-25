@@ -19,6 +19,7 @@ let data = null;
 let loadError = null;
 let current = 300;
 let typed = "";
+let pageArg;                        // e.g. the match id on page 390
 
 /* ---------- small text helpers ---------- */
 
@@ -35,6 +36,7 @@ function row(html, opts = {}) {
   if (opts.goto) attrs.push(`data-goto="${opts.goto}"`);
   if (opts.team != null) attrs.push(`data-team="${opts.team}"`);
   if (opts.href) attrs.push(`data-href="${esc(opts.href)}"`);
+  if (opts.match != null) attrs.push(`data-match="${opts.match}"`);
   return `<div class="${cls.join(" ")}" ${attrs.join(" ")}>${html}</div>`;
 }
 const blank = () => row(" ".repeat(W));
@@ -118,7 +120,7 @@ function matchRow(m, showComp = false) {
     seg(centre(scoreText(m), 5), live ? "g" : "y") + " " +
     seg(fit(away, 13), "w") + " " +
     seg(rfit(tag, 5), tagCls);
-  return row(html, { cls: isFav ? "fav" : "" });
+  return row(html, { cls: isFav ? "fav" : "", match: isLive(m) || isDone(m) ? m.id : null });
 }
 
 function groupByDay(matches) {
@@ -292,7 +294,7 @@ function teamLine(m, id) {
     seg(COMPS[m.comp].tag, "m") + " " +
     seg(home ? "H" : "A", "b") + " " +
     seg(fit(opp, 15), "w") + " " +
-    seg(rfit(res, 7), cls) + " ");
+    seg(rfit(res, 7), cls) + " ", { match: isLive(m) || isDone(m) ? m.id : null });
 }
 
 /* Competition pages: x1 results, x2 fixtures, x3 table */
@@ -627,6 +629,100 @@ page(303, {
   },
 });
 
+/* ---------- 390: match detail (scorers & red cards from ESPN via the Worker) ---------- */
+
+const matchInfo = {};        // match id -> { status: "loading"|"done", at, data, error }
+
+function findMatch(id) {
+  return allMatches().find((m) => String(m.id) === String(id));
+}
+
+async function loadMatchInfo(m) {
+  const prev = matchInfo[m.id];
+  matchInfo[m.id] = { ...(prev || {}), status: "loading" };
+  try {
+    if (!API) throw new Error("Needs the Cloudflare Worker (see README)");
+    const T = data.teams;
+    const q = new URLSearchParams({
+      comp: m.comp, date: m.d,
+      home: T[m.h]?.n || "", homeShort: T[m.h]?.s || "",
+      away: T[m.a]?.n || "", awayShort: T[m.a]?.s || "",
+    });
+    const r = await fetch(`${API}/events?${q}`);
+    if (!r.ok) throw new Error(`events ${r.status}`);
+    matchInfo[m.id] = { status: "done", at: Date.now(), data: await r.json() };
+  } catch (e) {
+    matchInfo[m.id] = { ...(prev || {}), status: "done", at: Date.now(), error: String(e.message || e) };
+  }
+  if (current === 390 && String(pageArg) === String(m.id)) render();
+}
+
+page(390, {
+  fastextDynamic() {
+    const m = findMatch(pageArg);
+    const base = m ? COMPS[m.comp].base : 310;
+    return [["Back", "back"], ["Results", base + 1], ["Table", base + 3], ["Index", 300]];
+  },
+  render() {
+    const m = findMatch(pageArg);
+    if (!m) return [title("MATCH", "bg-w"), blank(), text(" Match not found", "c")];
+    const c = COMPS[m.comp];
+    const L = [title(c.label, c.bg)];
+    const stage = m.comp === "CL" && STAGES[m.sg] ? STAGES[m.sg] : m.md ? `Matchday ${m.md}` : "";
+    L.push(text(centre(`${fLongDay.format(new Date(m.d))}${stage ? "  " + stage : ""}`, W), "c"));
+    L.push(blank());
+
+    // Big score line: home | score | away
+    const [h, a] = m.ft;
+    const sc = h == null ? "v" : `${h}-${a}`;
+    L.push(`<div class="row dh"><span class="dhtext">` +
+      seg(fit(teamName(m.h), 16), "w") + seg(centre(sc, 8), isLive(m) ? "g" : "y") + seg(rfit(teamName(m.a), 16), "w") +
+      `</span></div>`);
+    let st = statusTag(m);
+    if (m.st === "FINISHED" && m.ht[0] != null) st = `FT  (HT ${m.ht[0]}-${m.ht[1]})`;
+    if (m.pn) st += `  Pens ${m.pn[0]}-${m.pn[1]}`;
+    L.push(text(centre(st, W), isLive(m) ? "g flash" : "c"));
+    L.push(blank());
+
+    // Scorers
+    let info = matchInfo[m.id];
+    const stale = info && isLive(m) && Date.now() - (info.at || 0) > 60e3;
+    if ((!info || stale) && info?.status !== "loading") {
+      setTimeout(() => loadMatchInfo(m), 0);
+      if (!info) return [...L, text(" Loading scorers...", "g flash")];
+    }
+    if (info.error && !info.data) {
+      L.push(text(` ${info.error}`, "r"));
+      return L;
+    }
+    const d = info.data;
+    if (!d?.found) {
+      L.push(text(" Scorer details not available", "c"));
+      return L;
+    }
+    const evs = d.events.filter((e) => !e.shootout);
+    if (!evs.length) L.push(text(centre(h === 0 && a === 0 ? "No goals" : "No details yet", W), "c"));
+    for (const e of evs) {
+      const tag = e.kind === "pen" ? " (pen)" : e.kind === "og" ? " (og)" : "";
+      const red = e.kind === "red";
+      // Always keep the minute: shorten the name instead
+      const room = 19 - tag.length - e.min.length - 1;
+      const label = `${e.name.length > room ? e.name.slice(0, room) : e.name}${tag} ${e.min}`.trim();
+      const cls = red ? "r" : "w";
+      const mark = red ? seg("▌", "r") : seg(" ");
+      if (e.side === "a") L.push(row(" ".repeat(20) + seg(rfit(label, 19), cls) + mark));
+      else L.push(row(mark + seg(fit(label, 19), cls) + " ".repeat(20)));
+    }
+    if (evs.some((e) => e.kind === "red")) {
+      L.push(blank());
+      L.push(row(seg("▌", "r") + seg(" Sent off", "w")));
+    }
+    L.push(blank());
+    L.push(text(` Scorers: ESPN${info.status === "loading" ? "  (updating)" : ""}`, "b"));
+    return L;
+  },
+});
+
 /* ---------- rendering ---------- */
 
 function header() {
@@ -667,12 +763,15 @@ function renderFastext(def) {
     .join("");
 }
 
-function go(num, push = true) {
+function go(target, push = true) {
+  let [num, arg] = String(target).split("/");
   num = Number(num);
-  if (!pages[num]) num = 300;
+  if (!pages[num] || (num === 390 && !arg)) { num = 300; arg = undefined; }
   current = num;
+  pageArg = arg;
   typed = "";
-  if (push && location.hash !== `#${num}`) history.pushState(null, "", `#${num}`);
+  const hash = arg ? `#${num}/${arg}` : `#${num}`;
+  if (push && location.hash !== hash) history.pushState(null, "", hash);
   render();
   window.scrollTo(0, 0);
 }
@@ -727,9 +826,10 @@ async function load() {
 /* ---------- events ---------- */
 
 document.addEventListener("click", (e) => {
-  const t = e.target.closest("[data-goto],[data-team],[data-target],[data-key],[data-href]");
+  const t = e.target.closest("[data-goto],[data-team],[data-target],[data-key],[data-href],[data-match]");
   if (!t) return;
   if (t.dataset.href) return window.open(t.dataset.href, "_blank", "noopener");
+  if (t.dataset.match) return go(`390/${t.dataset.match}`);
   if (t.dataset.goto) return go(t.dataset.goto);
   if (t.dataset.team) {
     localStorage.setItem(FAV_KEY, t.dataset.team);
@@ -737,6 +837,7 @@ document.addEventListener("click", (e) => {
   }
   if (t.dataset.target) {
     if (t.dataset.target === "clear") { localStorage.removeItem(FAV_KEY); return render(); }
+    if (t.dataset.target === "back") return history.length > 1 ? history.back() : go(300);
     return go(t.dataset.target);
   }
   if (t.dataset.key) {
@@ -761,8 +862,12 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) load
 buildKeypad();
 sizeText();
 if (document.fonts) document.fonts.ready.then(sizeText);
-current = Number(location.hash.slice(1)) || 300;
-if (!pages[current]) current = 300;
+{
+  const [n, arg] = location.hash.slice(1).split("/");
+  current = Number(n) || 300;
+  pageArg = arg;
+  if (!pages[current] || (current === 390 && !arg)) current = 300;
+}
 try { data = JSON.parse(localStorage.getItem("footext.cache")); } catch {}
 render();
 load();
