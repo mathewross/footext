@@ -1,17 +1,20 @@
-# Only needed if you deploy with the Wrangler CLI instead of the Cloudflare dashboard.
-#   cd worker
-#   npx wrangler login
-#   npx wrangler kv namespace create CACHE      # copy the id into the block below
-#   npx wrangler secret put FOOTBALL_DATA_KEY
-#   npx wrangler deploy
+# Deploy settings for the FOOTEXT Worker.
+# Used by Cloudflare's GitHub integration (Settings > Builds), so pushing
+# worker/worker.js to GitHub deploys it automatically.
 
-name = "footext"
+name = "footext"            # must match the Worker's name in Cloudflare
 main = "worker.js"
 compatibility_date = "2026-11-01"
 
-# [vars]
-# ALLOWED_ORIGIN = "https://YOURNAME.github.io"
+# Keep the variables you set in the dashboard (ALLOWED_ORIGIN, ACCESS_KEY).
+# Secrets like FOOTBALL_DATA_KEY are always kept.
+keep_vars = true
 
-# [[kv_namespaces]]
-# binding = "CACHE"
-# id = "PASTE_KV_NAMESPACE_ID_HERE"
+# The cache (KV namespace "footext-cache")
+[[kv_namespaces]]
+binding = "CACHE"
+id = "554b64bb46764abe9e63a8e42cc54ce2"
+
+# Keep request logs on (Worker > Observability)
+[observability]
+enabled = true
