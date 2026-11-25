@@ -1,6 +1,6 @@
 # FOOTEXT
 
-Teletext-style football scores, fixtures, tables and confirmed transfers for the **Premier League**, **Championship** and **Champions League**. No ads, no articles, no gossip. It installs on Android as an app.
+Teletext-style football scores, fixtures, tables, confirmed transfers, match stats and lineups for the **Premier League**, **Championship** and **Champions League**. No ads, no articles, no gossip. It installs on Android as an app.
 
 ## How it works
 
