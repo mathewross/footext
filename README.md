@@ -65,6 +65,7 @@ In the Worker, add a plain variable `ALLOWED_ORIGIN` = `https://YOURNAME.github.
 | 399 | Choose your favourite team |
 
 You can tap any line, use the coloured Fastext buttons, or type a page number on the keypad.
+Results and live fixtures should have stats and lineups from ESPN's feed.
 
 ## About the transfer page
 
