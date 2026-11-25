@@ -1,5 +1,5 @@
 // Service worker: app shell works offline, data is always fetched fresh when online.
-const CACHE = "footext-v4";
+const CACHE = "footext-v5";
 const SHELL = ["./", "index.html", "style.css", "config.js", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {

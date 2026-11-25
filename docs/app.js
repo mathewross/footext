@@ -750,10 +750,22 @@ function render() {
     }
   } else {
     lines = def.render();
+    const warn = freshnessWarning();
+    if (warn) lines.splice(1, 0, warn);   // just under the page title
   }
   el.innerHTML = lines.join("");
   renderFastext(def);
   header();
+}
+
+/* Tell the user when scores aren't current, instead of silently showing old data */
+function freshnessWarning() {
+  const at = data?.updated ? new Date(data.updated) : null;
+  const t = at ? fTime.format(at) : "?";
+  const ageMin = at ? (Date.now() - at) / 60000 : Infinity;
+  if (loadError) return text(` No connection - scores from ${t}`, "r flash");
+  if (data?.stale?.length || ageMin > 5) return text(` Scores delayed - last update ${t}`, "y");
+  return "";
 }
 
 function renderFastext(def) {
