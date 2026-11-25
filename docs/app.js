@@ -174,6 +174,7 @@ page(300, {
     L.push(item(399, "Choose favourite team", "m"));
     L.push(blank());
     if (data?.updated) L.push(text(` Updated ${fShortDay.format(new Date(data.updated))} ${fTime.format(new Date(data.updated))}`, "b"));
+    if (data?.stale?.length) L.push(text(` Problem: ${data.stale[0].error}`.slice(0, W), "r"));
     L.push(text(" Tap a line or key in a page number", "b"));
     return L;
   },
@@ -748,9 +749,9 @@ function renderSummary(L, d, h, a) {
         L.push(row(" " + `<span class="bg-c">${" ".repeat(n)}</span><span class="bg-m">${" ".repeat(38 - n)}</span>` + " "));
       }
     }
-  } else if (d.state === "pre") {
+  } else {
     L.push(blank());
-    L.push(text(centre("Stats appear once the game starts", W), "c"));
+    L.push(text(centre(d.state === "pre" ? "Stats appear once the game starts" : "Match stats not available yet", W), "c"));
   }
 }
 
@@ -760,7 +761,7 @@ function renderLineups(L, d) {
   if (!lu) {
     L.push(blank());
     L.push(text(centre("Not available yet", W), "c"));
-    L.push(text(centre("(usually out an hour before kick-off)", W), "c"));
+    L.push(text(centre(d.state === "pre" ? "(usually out an hour before kick-off)" : "(ESPN sometimes adds them later)", W), "c"));
     return;
   }
   L.push(row(seg(fit(" " + (lu.h.formation || ""), 20), "c") + seg(rfit((lu.a.formation || "") + " ", 20), "c")));
