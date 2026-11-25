@@ -1,0 +1,139 @@
+:root {
+  --fs: 18px;            /* recalculated in app.js so 40 columns fit the screen */
+  --black: #000;
+  --red: #ff2020;
+  --green: #20ff20;
+  --yellow: #ffff20;
+  --blue: #2020ff;
+  --magenta: #ff20ff;
+  --cyan: #20ffff;
+  --white: #fff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--black);
+  color: var(--white);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: "VT323", "Courier New", ui-monospace, monospace;
+  font-size: var(--fs);
+  line-height: 1.15;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+}
+
+#screen {
+  width: 40ch;
+  margin: 0 auto;
+  flex: 1;
+  padding-bottom: 1em;
+  /* faint CRT scanlines */
+  background-image: repeating-linear-gradient(
+    to bottom, rgba(255,255,255,0.025) 0, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 3px);
+}
+
+.row {
+  white-space: pre;
+  height: 1.15em;
+  overflow: hidden;
+}
+
+/* Double-height rows, like teletext titles */
+.dh {
+  height: 2.3em;
+  display: flex;
+  align-items: center;
+}
+.dh > span.dhtext {
+  display: inline-block;
+  transform: scaleY(2);
+  transform-origin: center;
+}
+
+#header { position: sticky; top: 0; background: var(--black); z-index: 2; }
+
+/* Foreground colours */
+.r { color: var(--red); }
+.g { color: var(--green); }
+.y { color: var(--yellow); }
+.b { color: #6a6aff; }
+.m { color: var(--magenta); }
+.c { color: var(--cyan); }
+.w { color: var(--white); }
+.k { color: var(--black); }
+
+/* Background colours */
+.bg-r { background: var(--red); }
+.bg-g { background: var(--green); }
+.bg-y { background: var(--yellow); }
+.bg-b { background: var(--blue); }
+.bg-m { background: var(--magenta); }
+.bg-c { background: var(--cyan); }
+.bg-w { background: var(--white); }
+
+.fav { background: var(--blue); }
+
+.flash { animation: flash 1s steps(1) infinite; }
+@keyframes flash { 50% { visibility: hidden; } }
+
+[data-goto], [data-team] { cursor: pointer; }
+[data-goto]:active, [data-team]:active { background: #333; }
+
+/* Remote control */
+#remote {
+  position: sticky;
+  bottom: 0;
+  background: #111;
+  border-top: 2px solid #333;
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+  font-size: 18px;
+}
+
+#fastext {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  max-width: 520px;
+  margin: 0 auto 6px;
+}
+
+#fastext button, #keypad button {
+  font: inherit;
+  border: 0;
+  border-radius: 4px;
+  padding: 8px 2px;
+  min-height: 40px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+#fastext button { color: #000; font-size: 20px; }
+#fastext button:nth-child(1) { background: var(--red); }
+#fastext button:nth-child(2) { background: var(--green); }
+#fastext button:nth-child(3) { background: var(--yellow); }
+#fastext button:nth-child(4) { background: var(--cyan); }
+#fastext button:disabled { opacity: 0.25; }
+
+#keypad {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 4px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+#keypad button {
+  background: #2a2a2a;
+  color: #ddd;
+  font-size: 22px;
+  padding: 4px 0;
+  min-height: 36px;
+}
+#keypad button:active, #fastext button:active { filter: brightness(1.4); }

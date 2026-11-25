@@ -1,0 +1,17 @@
+# Only needed if you deploy with the Wrangler CLI instead of the Cloudflare dashboard.
+#   cd worker
+#   npx wrangler login
+#   npx wrangler kv namespace create CACHE      # copy the id into the block below
+#   npx wrangler secret put FOOTBALL_DATA_KEY
+#   npx wrangler deploy
+
+name = "footext"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# [vars]
+# ALLOWED_ORIGIN = "https://YOURNAME.github.io"
+
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "PASTE_KV_NAMESPACE_ID_HERE"
