@@ -143,8 +143,17 @@ function dayHeader(m, extra = "") {
 const pages = {};
 function page(num, def) { pages[num] = def; }
 
+// The league table your favourite team plays in (domestic league first), else the Prem
+function homeLeague() {
+  const id = favId();
+  const code = id && ["PL", "ELC", "CL"].find((c) => data?.comps?.[c]?.tables?.some((t) => t.rows.some((r) => r.id === id)));
+  const label = { PL: "Prem", ELC: "Champ", CL: "UCL" }[code || "PL"];
+  return [label, COMPS[code || "PL"].base + 3];
+}
+
 page(300, {
   fastext: [["Scores", 301], ["My team", 302], ["Prem", 313], ["Teams", 399]],
+  fastextDynamic() { return [["Scores", 301], ["My team", 302], homeLeague(), ["Teams", 399]]; },
   render() {
     const L = [];
     L.push(title("FOOTEXT  FOOTBALL", "bg-g"));
@@ -657,14 +666,19 @@ async function loadMatchInfo(m) {
   if (current === 390 && String(pageArg) === String(m.id)) render();
 }
 
+const matchArg = () => { const [id, view] = String(pageArg || "").split("/"); return { id, lineups: view === "lineups" }; };
+
 page(390, {
   fastextDynamic() {
-    const m = findMatch(pageArg);
+    const { id, lineups } = matchArg();
+    const m = findMatch(id);
     const base = m ? COMPS[m.comp].base : 310;
-    return [["Back", "back"], ["Results", base + 1], ["Table", base + 3], ["Index", 300]];
+    return [["Back", "back"], lineups ? ["Stats", `390/${id}`] : ["Lineups", `390/${id}/lineups`],
+      ["Table", base + 3], ["Index", 300]];
   },
   render() {
-    const m = findMatch(pageArg);
+    const { id, lineups } = matchArg();
+    const m = findMatch(id);
     if (!m) return [title("MATCH", "bg-w"), blank(), text(" Match not found", "c")];
     const c = COMPS[m.comp];
     const L = [title(c.label, c.bg)];
@@ -684,44 +698,91 @@ page(390, {
     L.push(text(centre(st, W), isLive(m) ? "g flash" : "c"));
     L.push(blank());
 
-    // Scorers
+    // Details from ESPN (via the Worker); refreshed every minute while live
     let info = matchInfo[m.id];
     const stale = info && isLive(m) && Date.now() - (info.at || 0) > 60e3;
     if ((!info || stale) && info?.status !== "loading") {
       setTimeout(() => loadMatchInfo(m), 0);
-      if (!info) return [...L, text(" Loading scorers...", "g flash")];
+      if (!info) return [...L, text(" Loading...", "g flash")];
     }
-    if (info.error && !info.data) {
-      L.push(text(` ${info.error}`, "r"));
-      return L;
-    }
+    if (info.error && !info.data) return [...L, text(` ${info.error}`, "r")];
     const d = info.data;
-    if (!d?.found) {
-      L.push(text(" Scorer details not available", "c"));
-      return L;
-    }
-    const evs = d.events.filter((e) => !e.shootout);
-    if (!evs.length) L.push(text(centre(h === 0 && a === 0 ? "No goals" : "No details yet", W), "c"));
-    for (const e of evs) {
-      const tag = e.kind === "pen" ? " (pen)" : e.kind === "og" ? " (og)" : "";
-      const red = e.kind === "red";
-      // Always keep the minute: shorten the name instead
-      const room = 19 - tag.length - e.min.length - 1;
-      const label = `${e.name.length > room ? e.name.slice(0, room) : e.name}${tag} ${e.min}`.trim();
-      const cls = red ? "r" : "w";
-      const mark = red ? seg("▌", "r") : seg(" ");
-      if (e.side === "a") L.push(row(" ".repeat(20) + seg(rfit(label, 19), cls) + mark));
-      else L.push(row(mark + seg(fit(label, 19), cls) + " ".repeat(20)));
-    }
-    if (evs.some((e) => e.kind === "red")) {
-      L.push(blank());
-      L.push(row(seg("▌", "r") + seg(" Sent off", "w")));
-    }
+    if (!d?.found) return [...L, text(" Match details not available", "c")];
+
+    if (lineups) renderLineups(L, d);
+    else renderSummary(L, d, h, a);
+
     L.push(blank());
-    L.push(text(` Scorers: ESPN${info.status === "loading" ? "  (updating)" : ""}`, "b"));
+    L.push(text(` Source: ESPN${info.status === "loading" ? "  (updating)" : ""}`, "b"));
     return L;
   },
 });
+
+function renderSummary(L, d, h, a) {
+  // Scorers and red cards
+  const evs = d.events.filter((e) => !e.shootout);
+  if (!evs.length) L.push(text(centre(h === 0 && a === 0 ? "No goals" : "No details yet", W), "c"));
+  for (const e of evs) {
+    const tag = e.kind === "pen" ? " (pen)" : e.kind === "og" ? " (og)" : "";
+    const red = e.kind === "red";
+    // Always keep the minute: shorten the name instead
+    const room = 19 - tag.length - e.min.length - 1;
+    const label = `${e.name.length > room ? e.name.slice(0, room) : e.name}${tag} ${e.min}`.trim();
+    const cls = red ? "r" : "w";
+    const mark = red ? seg("\u258c", "r") : seg(" ");
+    if (e.side === "a") L.push(row(" ".repeat(20) + seg(rfit(label, 19), cls) + mark));
+    else L.push(row(mark + seg(fit(label, 19), cls) + " ".repeat(20)));
+  }
+  if (evs.some((e) => e.kind === "red")) L.push(row(seg("\u258c", "r") + seg(fit(" Sent off", W - 1), "w")));
+
+  // Match stats
+  if (d.stats?.length) {
+    L.push(blank());
+    L.push(text(centre("MATCH STATS", W), "y"));
+    for (const [label, hv, av] of d.stats) {
+      L.push(row(" " + seg(rfit(hv, 5), "w") + seg(centre(label, 28), "c") + seg(fit(av, 5), "w") + " "));
+      if (label === "Possession") {
+        // Teletext-style bar: home share in cyan, away in magenta
+        const pct = Math.max(0, Math.min(100, parseFloat(hv) || 50));
+        const n = Math.round((pct / 100) * 38);
+        L.push(row(" " + `<span class="bg-c">${" ".repeat(n)}</span><span class="bg-m">${" ".repeat(38 - n)}</span>` + " "));
+      }
+    }
+  } else if (d.state === "pre") {
+    L.push(blank());
+    L.push(text(centre("Stats appear once the game starts", W), "c"));
+  }
+}
+
+function renderLineups(L, d) {
+  const lu = d.lineups;
+  L.push(text(centre("LINE-UPS", W), "y"));
+  if (!lu) {
+    L.push(blank());
+    L.push(text(centre("Not available yet", W), "c"));
+    L.push(text(centre("(usually out an hour before kick-off)", W), "c"));
+    return;
+  }
+  L.push(row(seg(fit(" " + (lu.h.formation || ""), 20), "c") + seg(rfit((lu.a.formation || "") + " ", 20), "c")));
+  const name = (p) => `${p.no ? p.no + " " : ""}${p.n}`;
+  const rows = Math.max(lu.h.starters.length, lu.a.starters.length);
+  for (let i = 0; i < rows; i++) {
+    const hp = lu.h.starters[i], ap = lu.a.starters[i];
+    L.push(row(
+      seg(fit(hp ? " " + name(hp) : "", 20), hp?.off ? "b" : "w") +
+      seg(rfit(ap ? name(ap) + " " : "", 20), ap?.off ? "b" : "w")));
+  }
+  const hs = lu.h.subsUsed, as = lu.a.subsUsed;
+  if (hs.length || as.length) {
+    L.push(blank());
+    L.push(text(centre("ON AS SUBSTITUTES", W), "y"));
+    for (let i = 0; i < Math.max(hs.length, as.length); i++) {
+      L.push(row(seg(fit(hs[i] ? " " + name(hs[i]) : "", 20), "g") + seg(rfit(as[i] ? name(as[i]) + " " : "", 20), "g")));
+    }
+    L.push(blank());
+    L.push(row(seg(" Blue", "b") + seg(fit(" = substituted off", W - 5), "w")));
+  }
+}
 
 /* ---------- rendering ---------- */
 
@@ -776,7 +837,8 @@ function renderFastext(def) {
 }
 
 function go(target, push = true) {
-  let [num, arg] = String(target).split("/");
+  let [num, ...rest] = String(target).split("/");
+  let arg = rest.join("/") || undefined;
   num = Number(num);
   if (!pages[num] || (num === 390 && !arg)) { num = 300; arg = undefined; }
   current = num;
@@ -875,9 +937,9 @@ buildKeypad();
 sizeText();
 if (document.fonts) document.fonts.ready.then(sizeText);
 {
-  const [n, arg] = location.hash.slice(1).split("/");
+  const [n, ...rest] = location.hash.slice(1).split("/");
   current = Number(n) || 300;
-  pageArg = arg;
+  pageArg = rest.join("/") || undefined;
   if (!pages[current] || (current === 390 && !arg)) current = 300;
 }
 try { data = JSON.parse(localStorage.getItem("footext.cache")); } catch {}
