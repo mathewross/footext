@@ -734,7 +734,6 @@ function renderSummary(L, d, h, a) {
     if (e.side === "a") L.push(row(" ".repeat(20) + seg(rfit(label, 19), cls) + mark));
     else L.push(row(mark + seg(fit(label, 19), cls) + " ".repeat(20)));
   }
-  if (evs.some((e) => e.kind === "red")) L.push(row(seg("\u258c", "r") + seg(fit(" Sent off", W - 1), "w")));
 
   // Match stats
   if (d.stats?.length) {
